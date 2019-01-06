@@ -1,0 +1,10 @@
+server:
+  port: 6060
+
+#spring:
+#  datasource:
+#    username: hive
+#    password: hivehive
+#    url: jdbc:mysql://10.1.1.214:3306/filestore?useUnicode=true&characterEncoding=utf-8
+#    druid:
+#      initial-size: 2
