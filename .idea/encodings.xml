@@ -2,6 +2,11 @@
 <project version="4">
   <component name="Encoding">
     <file url="file://$PROJECT_DIR$" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/blockchain" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/blockchain-manager" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/blockchain-manager/blockchain-manager-rest" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/blockchain/blockchain-core" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/blockchain/blockchain-manager" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/mysql-cluster" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/mysql-cluster/mysql-cluster-dao" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/mysql-cluster/mysql-cluster-entity" charset="UTF-8" />
