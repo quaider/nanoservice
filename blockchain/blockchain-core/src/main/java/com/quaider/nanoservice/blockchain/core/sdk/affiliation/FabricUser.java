@@ -19,6 +19,8 @@ public class FabricUser implements org.hyperledger.fabric.sdk.User, Serializable
     private FabricOrg organization;
     private Enrollment enrollment;
 
+    private String enrollmentSecret;
+
     public FabricUser(String name, FabricOrg org) {
         this.name = name;
         this.organization = org;
@@ -76,5 +78,14 @@ public class FabricUser implements org.hyperledger.fabric.sdk.User, Serializable
 
     public void setOrganization(FabricOrg organization) {
         this.organization = organization;
+    }
+
+    public String getEnrollmentSecret() {
+        return enrollmentSecret;
+    }
+
+    public FabricUser setEnrollmentSecret(String enrollmentSecret) {
+        this.enrollmentSecret = enrollmentSecret;
+        return this;
     }
 }

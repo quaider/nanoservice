@@ -1,9 +1,7 @@
 package com.quaider;
 
-import com.google.gson.Gson;
 import com.quaider.nanoservice.blockchain.core.sdk.affiliation.FabricOrg;
 import com.quaider.nanoservice.blockchain.core.sdk.affiliation.FabricUser;
-import org.apache.commons.codec.binary.Base64;
 import org.bouncycastle.util.io.pem.PemObject;
 import org.bouncycastle.util.io.pem.PemWriter;
 import org.hyperledger.fabric.sdk.Enrollment;
@@ -15,26 +13,55 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.*;
+import java.security.KeyPair;
 import java.security.PrivateKey;
 import java.util.*;
+import java.util.function.Function;
 
 public class MspGenerateTest {
 
     private HFCAClient client;
-    private static CryptoSuite crypto;
+    private static CryptoSuite cryptoSuite;
+
+    private final String CRYPTO_ROOT = "D:/crypto/";
+    private static FabricOrg ordererOrg;
+    private List<FabricOrg> peerOrgs = Arrays.asList();
+    private static String DOMAIN = "cnabs.com";
+
+    private HFCAInfo caInfo;
+
+    // 随环境变化
+    private String orgMspId = "";
+    private String orgHome = "";
+    private String orgAdminHome = "";
+    private String peerHome = "";
+    private String filename = "";
+    private String orgHost = "";
+    private String peerHost = "";
+    private FabricUser orgAdmin = null;
+
 
     @BeforeClass
     public static void init() throws Exception {
-        crypto = CryptoSuite.Factory.getCryptoSuite();
+        cryptoSuite = CryptoSuite.Factory.getCryptoSuite();
+        ordererOrg = new FabricOrg("orderer", "OrdererMSP");
     }
 
     @Before
     public void initCAClient() throws Exception {
+        FabricOrg org1 = new FabricOrg("org1", "Org1MSP");
+        FabricOrg org2 = new FabricOrg("org2", "Org2MSP");
+
+        org1.addPeers(new FabricUser("peer0.org1.cnabs.com", org1).setEnrollmentSecret("passwd"));
+        org1.addPeers(new FabricUser("peer1.org1.cnabs.com", org1).setEnrollmentSecret("passwd"));
+
+        org2.addPeers(new FabricUser("peer0.org2.cnabs.com", org2).setEnrollmentSecret("passwd"));
+        org2.addPeers(new FabricUser("peer1.org2.cnabs.com", org2).setEnrollmentSecret("passwd"));
+
+        peerOrgs = Arrays.asList(org1, org2);
+
         String caLocation = "https://fabric-ca-server:7054";
-
-
-        String path = "blockchain/blockchain-core/src/main/resources/ca-cert.pem";
-//        String tlsPem = readAllText(path);
+        String path = "src/main/resources/ca-cert-comp.pem";
 
         // Properties 用于携带 tls pem 证书
         Properties properties = new Properties();
@@ -42,46 +69,203 @@ public class MspGenerateTest {
         properties.put("allowAllHostNames", false);
 
         client = HFCAClient.createNewInstance(caLocation, properties);
-        client.setCryptoSuite(crypto);
+        client.setCryptoSuite(cryptoSuite);
 
-        Enrollment enrollment = client.enroll("admin", "adminpw");
-        FabricOrg org = new FabricOrg("org3.cnabs.com", "Org3MSP");
-        FabricUser admin = new FabricUser("admin", null);
-        admin.setEnrollment(enrollment);
+        caInfo = client.info();
+    }
 
-        HFCAAffiliation resp = client.getHFCAAffiliations(admin);
-        printAffiliation(resp);
 
-        HFCACertificateRequest hfcaCertificateRequest = client.newHFCACertificateRequest();
-//        hfcaCertificateRequest.setEnrollmentID("admin");
-        hfcaCertificateRequest.setRevoked(false);
-        hfcaCertificateRequest.setExpired(false);
+    @Test
+    public void genOrderer() throws Exception {
+        initOrdererVars();
+        genOrdererCA();
+        genOrdererMsp();
+        genOrdererAdmin();
+    }
 
-        //CN=86ac0ba8a848,OU=Fabric,O=Hyperledger,ST=North Carolina,C=US
-        HFCACertificateResponse hfcaCertificateResponse = client.getHFCACertificates(admin, hfcaCertificateRequest);
-        Collection<HFCACredential> credentials = hfcaCertificateResponse.getCerts();
-        for (HFCACredential credential : credentials) {
-            HFCAX509Certificate x509Certificate = (HFCAX509Certificate) credential;
-            if (x509Certificate == null) continue;
-            String name = x509Certificate.getX509().getSubjectX500Principal().getName();
-            if(name.indexOf("OU=Fabric,O=Hyperledger") > -1) {
-                System.out.println(x509Certificate.getPEM());
-                break;
+    private void initOrdererVars() throws Exception {
+        orgMspId = ordererOrg.getMSPID();
+        orgHome = CRYPTO_ROOT + "ordererOrganizations/cnabs.com/";
+        peerHome = CRYPTO_ROOT + "ordererOrganizations/cnabs.com/orderers/orderer.cnabs.com/";
+        orgAdminHome = CRYPTO_ROOT + "ordererOrganizations/cnabs.com/users/Admin@cnabs.com/";
+    }
+
+    private void genOrdererCA() throws Exception {
+        // cnabs.com组织的 cacerts
+        filename = orgHome + "msp/cacerts/fabric-ca-server-7054.pem";
+        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+
+        // cnabs.com组织的 tlscerts(同cacerts)
+        filename = orgHome + "msp/tlscacerts/fabric-ca-server-7054.pem";
+        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+    }
+
+    private void genOrdererMsp() throws Exception {
+        FabricUser orderer = new FabricUser("orderer.cnabs.com", ordererOrg);
+        orderer.setEnrollmentSecret("passwd");
+
+        EnrollmentRequest request = new EnrollmentRequest();
+        request.setProfile("tls");
+
+        Enrollment enrollment = client.enroll(orderer.getName(), orderer.getEnrollmentSecret(), request);
+        filename = peerHome + "/tls/server.key";
+        saveFile(filename, privateKeyToPEM(enrollment.getKey()));
+
+        filename = peerHome + "/tls/server.crt";
+        saveFile(filename, enrollment.getCert());
+
+        enrollment = client.enroll(orderer.getName(), orderer.getEnrollmentSecret());
+        filename = peerHome + "msp/cacerts/fabric-ca-server-7054.pem";
+        saveFile(filename, enrollment.getCert());
+
+        filename = peerHome + "msp/tlscacerts/fabric-ca-server-7054.pem";
+        saveFile(filename, enrollment.getCert());
+    }
+
+    private void genOrdererAdmin() throws Exception {
+        FabricUser ordererAdmin = new FabricUser("Admin@cnabs.com", ordererOrg);
+        ordererAdmin.setEnrollmentSecret("passwd");
+        Enrollment enrollment = client.enroll(ordererAdmin.getName(), ordererAdmin.getEnrollmentSecret());
+
+        // cacert
+        filename = orgAdminHome + "msp/cacerts/fabric-ca-server-7054.pem";
+        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+
+        // keystore
+        filename = orgAdminHome + "msp/keystore/orderer_admin_sk";
+        saveFile(filename, privateKeyToPEM(enrollment.getKey()));
+
+        // signcert
+        filename = orgAdminHome + "msp/signcerts/cert.pem";
+        saveFile(filename, enrollment.getCert());
+
+        // signcert to org admincerts
+        filename = orgHome + "msp/admincerts/cert.pem";
+        saveFile(filename, enrollment.getCert());
+
+        // admin's signcerts to admincerts
+        filename = orgAdminHome + "msp/admincerts/cert.pem";
+        saveFile(filename, enrollment.getCert());
+
+        filename = peerHome + "msp/admincerts/cert.pem";
+        saveFile(filename, enrollment.getCert());
+    }
+
+    @Test
+    public void genPeers() throws Exception {
+        for (FabricOrg org : peerOrgs) {
+            initOrgVars(org);
+            genOrgCA(org);
+            genOrgAdmin(org);
+
+            for (FabricUser peer : org.getPeers()) {
+                initPeerVars(peer);
+                genOrgPeerMSP(peer);
             }
+
         }
+    }
 
-        // 注册联盟(联盟名称是全名)
-//        HFCAAffiliation affiliation = client.newHFCAAffiliation("com.cnabs.org3");
-//        HFCAAffiliation.HFCAAffiliationResp resp = affiliation.create(admin);
-//        System.out.println(resp.getStatusCode());
-//        System.out.println(affiliation.getName());
+    private void initOrgVars(FabricOrg org) {
+        orgMspId = org.getMSPID();
+        // org1.cnabs.com
+        orgHost = org.getName() + "." + DOMAIN;
+        orgAdmin = new FabricUser("Admin@" + orgHost, org).setEnrollmentSecret("passwd");
+        // crypto/peerOrganizations/org1.cnabs.com/
+        orgHome = CRYPTO_ROOT + "peerOrganizations/" + orgHost + "/";
+        orgAdminHome = orgHome + "users/" + orgAdmin.getName() + "/";
+    }
 
-        // 注册 user/peer/orderer
-//        RegistrationRequest registrationRequest = new RegistrationRequest("org3.cnabs.com", "com.cnabs.org2");
-//        registrationRequest.setType("peer");
-//        registrationRequest.setSecret("passwd");
-//        String r = client.register(registrationRequest, admin);
-//        System.out.println(r);
+    private void initPeerVars(FabricUser peer) {
+        peerHost = peer.getName();
+        peerHome = orgHome + "peers/" + peerHost + "/";
+    }
+
+    private void genOrgCA(FabricOrg org) throws Exception {
+        filename = orgHome + "msp/cacerts/fabric-ca-server-7054.pem";
+        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+
+        filename = orgHome + "msp/tlscacerts/fabric-ca-server-7054.pem";
+        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+    }
+
+    private void genOrgAdmin(FabricOrg org) throws Exception {
+        Enrollment enrollment = client.enroll(orgAdmin.getName(), orgAdmin.getEnrollmentSecret());
+
+        filename = orgAdminHome + "msp/cacerts/cert.pem";
+        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+
+        filename = orgAdminHome + String.format("msp/keystore/%s_admin_sk", org.getName());
+        saveFile(filename, privateKeyToPEM(enrollment.getKey()));
+
+        filename = orgAdminHome + "msp/signcerts/cert.pem";
+        saveFile(filename, enrollment.getCert());
+
+        filename = orgAdmin + "msp/admincerts/cert.pem";
+        saveFile(filename, enrollment.getCert());
+    }
+
+    private EnrollmentRequest getTlsRequest() {
+        EnrollmentRequest request = new EnrollmentRequest();
+        request.addHost(peerHost);
+        request.setProfile("tls");
+        return request;
+    }
+
+    private void genOrgPeerMSP(FabricUser peer) throws Exception {
+
+        EnrollmentRequest request = getTlsRequest();
+
+        Enrollment enrollment = client.enroll(peer.getName(), peer.getEnrollmentSecret(), request);
+
+        filename = peerHome + "tls/server.key";
+        saveFile(filename, privateKeyToPEM(enrollment.getKey()));
+
+        filename = peerHome + "tls/server.crt";
+        saveFile(filename, enrollment.getCert());
+
+        request = getTlsRequest();
+        enrollment = client.enroll(peer.getName(), peer.getEnrollmentSecret(), request);
+
+        filename = peerHome + "tls/" + getKeyName(peer.getName(), "client.key");
+        saveFile(filename, privateKeyToPEM(enrollment.getKey()));
+
+        filename = peerHome + "tls/" + getKeyName(peer.getName(), "client.crt");
+        saveFile(filename, enrollment.getCert());
+
+        request = getTlsRequest();
+        enrollment = client.enroll(peer.getName(), peer.getEnrollmentSecret(), request);
+
+        filename = peerHome + "tls/" + getKeyName(peer.getName(), "cli-client.key");
+        saveFile(filename, privateKeyToPEM(enrollment.getKey()));
+
+        filename = peerHome + "tls/" + getKeyName(peer.getName(), "cli-client.crt");
+        saveFile(filename, enrollment.getCert());
+
+
+        enrollment = client.enroll(peer.getName(), peer.getEnrollmentSecret());
+
+        filename = peerHome + String.format("msp/keystore/%s_sk", peer.getName());
+        saveFile(filename, privateKeyToPEM(enrollment.getKey()));
+
+        filename = peerHome + "msp/signcerts/cert.pem";
+        saveFile(filename, enrollment.getCert());
+
+        filename = peerHome + "msp/cacerts/fabric-ca-server-7054.pem";
+        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+
+        filename = peerHome + "msp/tlscacerts/fabric-ca-server-7054.pem";
+        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+
+        // 复制组织的admincerts
+        filename = orgAdminHome + "msp/admincerts/cert.pem";
+        String orgAdminCert = orgAdmin + "msp/admincerts/cert.pem";
+        saveFile(filename, readAllText(orgAdminCert));
+    }
+
+    private String getKeyName(String peerName, String suffix) {
+        String name = peerName.replace("." + DOMAIN, "").replace(".", "-");
+        return name + "-" + suffix;
     }
 
     @Test
@@ -91,11 +275,9 @@ public class MspGenerateTest {
 
     private String readAllText(String path) {
         File file = new File(path);
-        FileReader fileReader = null;
-        BufferedReader reader = null;
         try (InputStream inputStream = new FileInputStream(file)) {
-            fileReader = new FileReader(file);
-            reader = new BufferedReader(fileReader);
+            FileReader fileReader = new FileReader(file);
+            BufferedReader reader = new BufferedReader(fileReader);
             String line;
             String text = "";
             while ((line = reader.readLine()) != null) {
@@ -105,13 +287,6 @@ public class MspGenerateTest {
             return text;
         } catch (Exception ex) {
             throw new RuntimeException(path + "读取失败");
-        } finally {
-            try {
-                if (fileReader != null) fileReader.close();
-                if (reader != null) fileReader.close();
-            } catch (Exception ex) {
-
-            }
         }
     }
 
@@ -123,16 +298,42 @@ public class MspGenerateTest {
      * @throws Exception
      */
     private String privateKeyToPEM(PrivateKey privateKey) throws Exception {
-//        这样没有 BEGIN PRIVATE KEY 包裹
-//        String privateKeyStr = Base64.encodeBase64String(enrollment.getKey().getEncoded());
 
-        PemObject pemObject = new PemObject("PRIVATE KEY", privateKey.getEncoded());
+        return bytesToPEM("PRIVATE KEY", privateKey.getEncoded());
+    }
+
+    private String certToPEM(String cert) throws Exception {
+        return bytesToPEM("CERTIFICATE", cert.getBytes());
+    }
+
+    private String bytesToPEM(String plainText, byte[] bytes) throws Exception {
+        // 这样没有 BEGIN PRIVATE KEY 包裹
+        // String privateKeyStr = Base64.encodeBase64String(enrollment.getKey().getEncoded());
+
+        PemObject pemObject = new PemObject(plainText, bytes);
         StringWriter stringWriter = new StringWriter();
         PemWriter pemWriter = new PemWriter(stringWriter);
         pemWriter.writeObject(pemObject);
         pemWriter.close();
 
         return stringWriter.toString();
+    }
+
+    private void saveFile(String fileName, String content) {
+
+        File file = new File(fileName);
+        if (!file.getParentFile().exists()) {
+            file.getParentFile().mkdirs();
+        }
+
+        try (FileWriter fileWriter = new FileWriter(file);
+             BufferedWriter writer = new BufferedWriter(fileWriter)) {
+
+            writer.write(content);
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            throw new RuntimeException(ex);
+        }
     }
 
     // 打印联盟层级结构
