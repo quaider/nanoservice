@@ -13,10 +13,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.*;
-import java.security.KeyPair;
 import java.security.PrivateKey;
 import java.util.*;
-import java.util.function.Function;
 
 public class MspGenerateTest {
 
@@ -86,18 +84,18 @@ public class MspGenerateTest {
     private void initOrdererVars() throws Exception {
         orgMspId = ordererOrg.getMSPID();
         orgHome = CRYPTO_ROOT + "ordererOrganizations/cnabs.com/";
-        peerHome = CRYPTO_ROOT + "ordererOrganizations/cnabs.com/orderers/orderer.cnabs.com/";
-        orgAdminHome = CRYPTO_ROOT + "ordererOrganizations/cnabs.com/users/Admin@cnabs.com/";
+        peerHome = orgHome + "orderers/orderer.cnabs.com/";
+        orgAdminHome = orgHome + "/users/Admin@cnabs.com/";
     }
 
     private void genOrdererCA() throws Exception {
         // cnabs.com组织的 cacerts
         filename = orgHome + "msp/cacerts/fabric-ca-server-7054.pem";
-        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+        saveFile(filename, caInfoToPEM(caInfo));
 
         // cnabs.com组织的 tlscerts(同cacerts)
         filename = orgHome + "msp/tlscacerts/fabric-ca-server-7054.pem";
-        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+        saveFile(filename, caInfoToPEM(caInfo));
     }
 
     private void genOrdererMsp() throws Exception {
@@ -114,12 +112,18 @@ public class MspGenerateTest {
         filename = peerHome + "/tls/server.crt";
         saveFile(filename, enrollment.getCert());
 
-        enrollment = client.enroll(orderer.getName(), orderer.getEnrollmentSecret());
-        filename = peerHome + "msp/cacerts/fabric-ca-server-7054.pem";
+        filename = peerHome + "msp/signcerts/cert.pem";
         saveFile(filename, enrollment.getCert());
 
+        filename = peerHome + String.format("msp/keystore/%s_sk", orderer.getName());
+        saveFile(filename, privateKeyToPEM(enrollment.getKey()));
+
+        enrollment = client.enroll(orderer.getName(), orderer.getEnrollmentSecret());
+        filename = peerHome + "msp/cacerts/fabric-ca-server-7054.pem";
+        saveFile(filename, caInfoToPEM(caInfo));
+
         filename = peerHome + "msp/tlscacerts/fabric-ca-server-7054.pem";
-        saveFile(filename, enrollment.getCert());
+        saveFile(filename, caInfoToPEM(caInfo));
     }
 
     private void genOrdererAdmin() throws Exception {
@@ -129,7 +133,7 @@ public class MspGenerateTest {
 
         // cacert
         filename = orgAdminHome + "msp/cacerts/fabric-ca-server-7054.pem";
-        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+        saveFile(filename, caInfoToPEM(caInfo));
 
         // keystore
         filename = orgAdminHome + "msp/keystore/orderer_admin_sk";
@@ -162,7 +166,6 @@ public class MspGenerateTest {
                 initPeerVars(peer);
                 genOrgPeerMSP(peer);
             }
-
         }
     }
 
@@ -183,17 +186,17 @@ public class MspGenerateTest {
 
     private void genOrgCA(FabricOrg org) throws Exception {
         filename = orgHome + "msp/cacerts/fabric-ca-server-7054.pem";
-        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+        saveFile(filename, caInfoToPEM(caInfo));
 
         filename = orgHome + "msp/tlscacerts/fabric-ca-server-7054.pem";
-        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+        saveFile(filename, caInfoToPEM(caInfo));
     }
 
     private void genOrgAdmin(FabricOrg org) throws Exception {
         Enrollment enrollment = client.enroll(orgAdmin.getName(), orgAdmin.getEnrollmentSecret());
 
         filename = orgAdminHome + "msp/cacerts/cert.pem";
-        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+        saveFile(filename, caInfoToPEM(caInfo));
 
         filename = orgAdminHome + String.format("msp/keystore/%s_admin_sk", org.getName());
         saveFile(filename, privateKeyToPEM(enrollment.getKey()));
@@ -201,7 +204,10 @@ public class MspGenerateTest {
         filename = orgAdminHome + "msp/signcerts/cert.pem";
         saveFile(filename, enrollment.getCert());
 
-        filename = orgAdmin + "msp/admincerts/cert.pem";
+        filename = orgHome + "msp/admincerts/cert.pem";
+        saveFile(filename, enrollment.getCert());
+
+        filename = orgAdminHome + "msp/admincerts/cert.pem";
         saveFile(filename, enrollment.getCert());
     }
 
@@ -252,14 +258,14 @@ public class MspGenerateTest {
         saveFile(filename, enrollment.getCert());
 
         filename = peerHome + "msp/cacerts/fabric-ca-server-7054.pem";
-        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+        saveFile(filename, caInfoToPEM(caInfo));
 
         filename = peerHome + "msp/tlscacerts/fabric-ca-server-7054.pem";
-        saveFile(filename, certToPEM(caInfo.getCACertificateChain()));
+        saveFile(filename, caInfoToPEM(caInfo));
 
         // 复制组织的admincerts
-        filename = orgAdminHome + "msp/admincerts/cert.pem";
-        String orgAdminCert = orgAdmin + "msp/admincerts/cert.pem";
+        filename = peerHome + "msp/admincerts/cert.pem";
+        String orgAdminCert = orgHome + "msp/admincerts/cert.pem";
         saveFile(filename, readAllText(orgAdminCert));
     }
 
@@ -275,16 +281,20 @@ public class MspGenerateTest {
 
     private String readAllText(String path) {
         File file = new File(path);
-        try (InputStream inputStream = new FileInputStream(file)) {
-            FileReader fileReader = new FileReader(file);
-            BufferedReader reader = new BufferedReader(fileReader);
+        try (FileReader fileReader = new FileReader(file);
+             BufferedReader reader = new BufferedReader(fileReader);
+             StringWriter sw = new StringWriter()) {
+
             String line;
-            String text = "";
+            int i = 0;
             while ((line = reader.readLine()) != null) {
-                text += line;
+                if (i > 0)
+                    sw.write("\n");
+                sw.write(line);
+                i++;
             }
 
-            return text;
+            return sw.toString();
         } catch (Exception ex) {
             throw new RuntimeException(path + "读取失败");
         }
@@ -334,6 +344,13 @@ public class MspGenerateTest {
             ex.printStackTrace();
             throw new RuntimeException(ex);
         }
+    }
+
+    private String caInfoToPEM(HFCAInfo info) {
+        String originalStr = info.getCACertificateChain();
+        // 自带了 BEGIN CERTIFICATE END CERTIFICATE
+        String pemStr = new String(Base64.getDecoder().decode(originalStr));
+        return pemStr;
     }
 
     // 打印联盟层级结构
