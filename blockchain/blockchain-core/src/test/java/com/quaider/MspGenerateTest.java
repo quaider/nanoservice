@@ -1,7 +1,7 @@
 package com.quaider;
 
-import com.quaider.nanoservice.blockchain.core.sdk.affiliation.FabricOrg;
-import com.quaider.nanoservice.blockchain.core.sdk.affiliation.FabricUser;
+import com.quaider.nanoservice.blockchain.core.sdk.FabricOrg;
+import com.quaider.nanoservice.blockchain.core.sdk.FabricUser;
 import org.bouncycastle.util.io.pem.PemObject;
 import org.bouncycastle.util.io.pem.PemWriter;
 import org.hyperledger.fabric.sdk.Enrollment;
@@ -15,6 +15,7 @@ import org.junit.Test;
 import java.io.*;
 import java.security.PrivateKey;
 import java.util.*;
+
 
 public class MspGenerateTest {
 
@@ -50,11 +51,11 @@ public class MspGenerateTest {
         FabricOrg org1 = new FabricOrg("org1", "Org1MSP");
         FabricOrg org2 = new FabricOrg("org2", "Org2MSP");
 
-        org1.addPeers(new FabricUser("peer0.org1.cnabs.com", org1).setEnrollmentSecret("passwd"));
-        org1.addPeers(new FabricUser("peer1.org1.cnabs.com", org1).setEnrollmentSecret("passwd"));
+        org1.addPeer(new FabricUser("peer0.org1.cnabs.com", org1).setEnrollmentSecret("passwd"));
+        org1.addPeer(new FabricUser("peer1.org1.cnabs.com", org1).setEnrollmentSecret("passwd"));
 
-        org2.addPeers(new FabricUser("peer0.org2.cnabs.com", org2).setEnrollmentSecret("passwd"));
-        org2.addPeers(new FabricUser("peer1.org2.cnabs.com", org2).setEnrollmentSecret("passwd"));
+        org2.addPeer(new FabricUser("peer0.org2.cnabs.com", org2).setEnrollmentSecret("passwd"));
+        org2.addPeer(new FabricUser("peer1.org2.cnabs.com", org2).setEnrollmentSecret("passwd"));
 
         peerOrgs = Arrays.asList(org1, org2);
 
@@ -82,7 +83,7 @@ public class MspGenerateTest {
     }
 
     private void initOrdererVars() throws Exception {
-        orgMspId = ordererOrg.getMSPID();
+        orgMspId = ordererOrg.getMspid();
         orgHome = CRYPTO_ROOT + "ordererOrganizations/cnabs.com/";
         peerHome = orgHome + "orderers/orderer.cnabs.com/";
         orgAdminHome = orgHome + "/users/Admin@cnabs.com/";
@@ -112,13 +113,14 @@ public class MspGenerateTest {
         filename = peerHome + "/tls/server.crt";
         saveFile(filename, enrollment.getCert());
 
+        enrollment = client.enroll(orderer.getName(), orderer.getEnrollmentSecret());
+
         filename = peerHome + "msp/signcerts/cert.pem";
         saveFile(filename, enrollment.getCert());
 
         filename = peerHome + String.format("msp/keystore/%s_sk", orderer.getName());
         saveFile(filename, privateKeyToPEM(enrollment.getKey()));
 
-        enrollment = client.enroll(orderer.getName(), orderer.getEnrollmentSecret());
         filename = peerHome + "msp/cacerts/fabric-ca-server-7054.pem";
         saveFile(filename, caInfoToPEM(caInfo));
 
@@ -359,7 +361,7 @@ public class MspGenerateTest {
         System.out.println(affiliation.getName());
         Collection<HFCAAffiliation> affiliations = affiliation.getChildren();
 
-        if (affiliations == null || affiliations.size() <= 0) {
+        if (affiliations == null || affiliations.size() <= 0)  {
             return;
         }
 

@@ -1,4 +1,4 @@
-package com.quaider.nanoservice.blockchain.core.sdk.affiliation;
+package com.quaider.nanoservice.blockchain.core.sdk;
 
 import org.hyperledger.fabric.sdk.Enrollment;
 
